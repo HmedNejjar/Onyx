@@ -35,7 +35,8 @@ class BPE:
         self.tokenizer = Tokenizer(HF_BPE())
         
         # Configure the trainer with user-specified parameters
-        self.trainer = BpeTrainer(vocab_size=vocab_size, min_frequency=min_frequency, show_progress=True)
+        # vocab_size=vocab_size - 5, leaving IDs for special character, added later
+        self.trainer = BpeTrainer(vocab_size=vocab_size - 5, min_frequency=min_frequency, show_progress=True)
     
     def train(self, file: str | Path) -> None:
         """

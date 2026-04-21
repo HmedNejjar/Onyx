@@ -4,7 +4,7 @@
   "padding": null,
   "added_tokens": [
     {
-      "id": 30000,
+      "id": 29995,
       "content": "<s>",
       "single_word": false,
       "lstrip": false,
@@ -13,7 +13,7 @@
       "special": true
     },
     {
-      "id": 30001,
+      "id": 29996,
       "content": "<pad>",
       "single_word": false,
       "lstrip": false,
@@ -22,7 +22,7 @@
       "special": true
     },
     {
-      "id": 30002,
+      "id": 29997,
       "content": "</s>",
       "single_word": false,
       "lstrip": false,
@@ -31,7 +31,7 @@
       "special": true
     },
     {
-      "id": 30003,
+      "id": 29998,
       "content": "<unk>",
       "single_word": false,
       "lstrip": false,
@@ -40,7 +40,7 @@
       "special": true
     },
     {
-      "id": 30004,
+      "id": 29999,
       "content": "<mask>",
       "single_word": false,
       "lstrip": false,
@@ -30057,12 +30057,7 @@
       "s visible ": 29991,
       "s flying ": 29992,
       "s round his ": 29993,
-      "s du ": 29994,
-      "ins": 29995,
-      "in.”\r\n": 29996,
-      "inser": 29997,
-      "ine.\r\n": 29998,
-      "inely ": 29999
+      "s du ": 29994
     },
     "merges": [
       [
@@ -149604,26 +149599,6 @@
       [
         "s ",
         "du "
-      ],
-      [
-        "in",
-        "s"
-      ],
-      [
-        "in",
-        ".”\r\n"
-      ],
-      [
-        "in",
-        "ser"
-      ],
-      [
-        "in",
-        "e.\r\n"
-      ],
-      [
-        "in",
-        "ely "
       ]
     ]
   }
