@@ -62,7 +62,7 @@ class GPTDataset(Dataset):
         # Input sequence: current position to current + seq_length
         x = torch.tensor(self.tokens[idx:idx+self.seq_length], dtype=torch.long)
         # Target sequence: next token to next + seq_length (shifted by 1)
-        y = torch.tensor(self.tokens[idx+1:self.seq_length+1], dtype=torch.long)
+        y = torch.tensor(self.tokens[idx+1:idx+self.seq_length+1], dtype=torch.long)
         
         return x, y
     
