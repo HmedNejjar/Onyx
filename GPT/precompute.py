@@ -38,12 +38,14 @@ def tokenize_batch(text_list: list, tokenizer: BPE) -> np.ndarray:
 # --- Process Training Data ---
 print("Processing training set...")
 train_tokens = tokenize_batch(train_text, tokenizer)
+train_tokens = np.clip(train_tokens, 0, VOCAB_SIZE - 1)
 # Save as a binary file for fast loading during model training
 np.save("G:\\Projects\\Python\Onyx\\Data\\wikitext_train.npy", train_tokens)
 
 # --- Process Validation Data ---
 print("Processing validation set...")
 val_tokens = tokenize_batch(val_text, tokenizer)
+val_tokens = np.clip(val_tokens, 0, VOCAB_SIZE - 1)
 np.save("G:\\Projects\\Python\Onyx\\Data\\wikitext_val.npy", val_tokens)
 
 # Summary of the resulting dataset size
