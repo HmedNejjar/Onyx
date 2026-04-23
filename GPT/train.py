@@ -11,16 +11,16 @@ DEVICE = 'cuda' if torch.cuda.is_available() else 'cpu'
 print(f'Using {DEVICE.upper()} for training')
 
 PARENT = Path(r"G:\\Projects\\Python\\Onyx")
-TRAIN_FILE_PATH = PARENT / Path(r'Data\\wikitext_train.npy')
-VAL_FILE_PATH = PARENT / Path(r'Data\\wikitext_val.npy')
+TRAIN_FILE_PATH = PARENT / Path(r'Data/wikitext_train.npy')
+VAL_FILE_PATH = PARENT / Path(r'Data/wikitext_val.npy')
 
 VOCAB_SIZE = 30_000
-CONTEXT_LEN = 1024
+CONTEXT_LEN = 512
 EMB_SIZE = 1024
 NUM_HEADS = 16
 NUM_LAYERS = 12
 DROPOUT = 0.1
-BATCH_SIZE = 16
+BATCH_SIZE = 2
 EPOCHS = 10
 LR = 1e-4
 
@@ -28,7 +28,7 @@ model = Onyx(VOCAB_SIZE, CONTEXT_LEN, EMB_SIZE, NUM_HEADS, NUM_LAYERS, DROPOUT)
 optimizer = AdamW(model.parameters(), LR, weight_decay= 1e-5)
 loss_fn = CrossEntropyLoss()
 
-train_dataset, val_dataset = GPTDataset(TRAIN_FILE_PATH), GPTDataset(VAL_FILE_PATH)
+train_dataset, val_dataset = GPTDataset(TRAIN_FILE_PATH, CONTEXT_LEN), GPTDataset(VAL_FILE_PATH, CONTEXT_LEN)
 train_loader = DataLoader(train_dataset, batch_size=BATCH_SIZE, shuffle=False)
 val_loader = DataLoader(val_dataset, batch_size=BATCH_SIZE, shuffle=False)
 
