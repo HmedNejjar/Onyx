@@ -13,10 +13,11 @@ print(f'Using {DEVICE.upper()} for training')
 PARENT = Path(r"G:\\Projects\\Python\\Onyx")
 TRAIN_FILE_PATH = PARENT / Path(r'Data/wikitext_train.npy')
 VAL_FILE_PATH = PARENT / Path(r'Data/wikitext_val.npy')
+MODEL_SAVE_PATH = PARENT / Path(r'best_model.pth')
 
 VOCAB_SIZE = 30_000
 CONTEXT_LEN = 512
-EMB_SIZE = 1024
+EMB_SIZE = 512
 NUM_HEADS = 16
 NUM_LAYERS = 12
 DROPOUT = 0.1
@@ -25,6 +26,12 @@ EPOCHS = 10
 LR = 1e-4
 
 model = Onyx(VOCAB_SIZE, CONTEXT_LEN, EMB_SIZE, NUM_HEADS, NUM_LAYERS, DROPOUT)
+
+if MODEL_SAVE_PATH.exists():
+    print(f"Loading model from {MODEL_SAVE_PATH}")
+    model.load_state_dict(torch.load(MODEL_SAVE_PATH))
+
+
 optimizer = AdamW(model.parameters(), LR, weight_decay= 1e-5)
 loss_fn = CrossEntropyLoss()
 
@@ -122,7 +129,7 @@ def train():
         # Save best model based on validation accuracy
         if val_acc > best_accuracy:
             best_accuracy = val_acc
-            torch.save(model.state_dict(), PARENT / "best_model.pth")
+            torch.save(model.state_dict(), MODEL_SAVE_PATH)
             print(f"[Epoch {epoch+1}/{EPOCHS}] Train Loss: {avg_train_loss:.4f} | Train Acc: {avg_train_acc:.2f}% | Val Loss: {val_loss:.4f} | Val Acc: {val_acc:.2f}% ⭐ SAVED")
         else:
             print(f"[Epoch {epoch+1}/{EPOCHS}] Train Loss: {avg_train_loss:.4f} | Train Acc: {avg_train_acc:.2f}% | Val Loss: {val_loss:.4f} | Val Acc: {val_acc:.2f}%")
