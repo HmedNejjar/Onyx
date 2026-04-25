@@ -13,6 +13,7 @@ VAL_FILE_PATH = PARENT / Path(r'Data/wikitext_val.npy')
 MODEL_SAVE_PATH = PARENT / Path(r'best_model.pth')
 
 VOCAB_SIZE = 30_000
+STRIDE = 256
 CONTEXT_LEN = 512
 EMB_SIZE = 512
 NUM_HEADS = 16
@@ -35,8 +36,8 @@ if MODEL_SAVE_PATH.exists():
 optimizer = AdamW(model.parameters(), LR, weight_decay=1e-5)
 loss_fn = CrossEntropyLoss()
 
-train_dataset = GPTDataset(TRAIN_FILE_PATH, CONTEXT_LEN)
-val_dataset   = GPTDataset(VAL_FILE_PATH,   CONTEXT_LEN)
+train_dataset = GPTDataset(TRAIN_FILE_PATH, CONTEXT_LEN, STRIDE)
+val_dataset   = GPTDataset(VAL_FILE_PATH,   CONTEXT_LEN, STRIDE)
 
 # num_workers speeds up data loading; pin_memory speeds up CPU→GPU transfers
 train_loader = DataLoader(train_dataset, batch_size=BATCH_SIZE, shuffle=False, num_workers=4, pin_memory=True)

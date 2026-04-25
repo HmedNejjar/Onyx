@@ -17,8 +17,10 @@ class GPTDataset(Dataset):
     Attributes:
         tokens (np.ndarray): 1D array of token IDs loaded from file.
         seq_length (int): Length of input sequences. Defaults to 1024.
+        stride (int): Step size between consecutive samples. Controls overlap
+                      between sequences. Defaults to 512.
     """
-    def __init__(self, tokens_file: str | Path, seq_length: int = 1024) -> None:
+    def __init__(self, tokens_file: str | Path, seq_length: int = 1024, stride:int = 512) -> None:
         """
         Initialize the GPT dataset.
         
@@ -27,10 +29,14 @@ class GPTDataset(Dataset):
                                      as a 1D array of token IDs (dtype: int32 or int64).
             seq_length (int): Length of each sequence in tokens. Controls the context window
                              for next-token prediction. Defaults to 1024.
+            stride (int): Step size between consecutive samples. Smaller stride creates
+                         more overlapping samples; larger stride creates fewer samples
+                         with less overlap. Defaults to 512.
         """
         super().__init__()
         self.tokens = np.load(tokens_file)
         self.seq_length = seq_length
+        self.stride = stride
         
     def __len__(self):
         """
@@ -38,17 +44,17 @@ class GPTDataset(Dataset):
         
         Returns:
             int: Number of valid (input, target) pairs that can be created.
-                 Equals total tokens minus sequence length to avoid going past the end.
+                 Equals floor((total_tokens - seq_length) / stride).
         """
-        return len(self.tokens) - self.seq_length
+        return (len(self.tokens) - self.seq_length) // self.stride
     
     def __getitem__(self, idx) -> tuple[Tensor, Tensor]:
         """
-        Retrieve a single (input, target) pair at the given index.
+         Retrieve a single (input, target) pair at the given index.
         
-        Creates a next-token prediction pair by sliding a window:
-        - Input (x):  tokens at positions [idx, idx+seq_length)
-        - Target (y): tokens at positions [idx+1, idx+seq_length+1)
+        Creates a next-token prediction pair by sliding a window with the configured stride:
+        - Input (x):  tokens at positions [idx*stride, idx*stride+seq_length)
+        - Target (y): tokens at positions [idx*stride+1, idx*stride+seq_length+1)
         
         This ensures that each position in the input predicts the next token.
         
@@ -59,10 +65,11 @@ class GPTDataset(Dataset):
             tuple[Tensor, Tensor]: (input_ids, target_ids) as PyTorch long tensors.
                                   Both have shape (seq_length,).
         """
+        start_idx = idx * self.stride
         # Input sequence: current position to current + seq_length
-        x = torch.tensor(self.tokens[idx:idx+self.seq_length], dtype=torch.long)
+        x = torch.tensor(self.tokens[start_idx:start_idx+self.seq_length], dtype=torch.long)
         # Target sequence: next token to next + seq_length (shifted by 1)
-        y = torch.tensor(self.tokens[idx+1:idx+self.seq_length+1], dtype=torch.long)
+        y = torch.tensor(self.tokens[start_idx+1:start_idx+self.seq_length+1], dtype=torch.long)
         
         return x, y
     
