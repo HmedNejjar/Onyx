@@ -6,6 +6,7 @@ import torch.nn.functional as F
 from torch import Tensor, nn
 from TransformerBlock import TransformerBlock
 from Tokenizer.Encoder import BPE
+from pathlib import Path
 
 
 class Onyx(nn.Module):
@@ -17,7 +18,7 @@ class Onyx(nn.Module):
     embeddings, positional embeddings, and causal masking to ensure that predictions
     at each position only depend on previous positions.
     """
-    def __init__(self, vocab_size:int = 30_000, context_length: int = 1024, emb_size: int = 1024, num_heads: int = 16, num_layers: int = 12, dropout: float = 0.1) -> None:
+    def __init__(self, vocab_size:int = 30_000, context_length: int = 1024, emb_size: int = 1024, num_heads: int = 16, num_layers: int = 12, dropout: float = 0.1, tokenizer: str | Path = Path(r'G:\Projects\Python\Onyx\Tokenizer\BPE_30k.json')) -> None:
         """
         Initialize the Onyx language model.
         
@@ -39,6 +40,7 @@ class Onyx(nn.Module):
         self.num_layers = num_layers
         
         self.encoder = BPE(vocab_size=self.vocab_size)
+        self.encoder.load(tokenizer)
         
         # Token embedding layer: maps token IDs to embedding vectors
         self.embedding = nn.Embedding(vocab_size, emb_size)
@@ -102,7 +104,10 @@ class Onyx(nn.Module):
             str: The generated text, including the original prompt plus the continuation.
         """
         # Tokenize the input prompt and convert to tensor with batch dimension
-        tokenized = torch.tensor(self.encoder.encode(prompt), dtype=torch.long).unsqueeze(0)
+        encoded_prompt = self.encoder.encode(prompt)
+        if len(encoded_prompt) == 0:
+            raise ValueError("Prompt must contain at least one token. Please provide non-empty text input.")
+        tokenized = torch.tensor(encoded_prompt, dtype=torch.long).unsqueeze(0)
         
         # Generate tokens one by one up to max_tokens
         for _ in range(max_tokens):

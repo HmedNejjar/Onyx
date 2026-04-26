@@ -136,7 +136,7 @@ class BPE:
         """
         # Decode the token IDs back to text
         # The tokenizer knows how to properly join BPE subword tokens
-        decoded = self.tokenizer.decode(tokens)
+        decoded = self.tokenizer.decode(tokens, skip_special_tokens=True)
         return decoded
 
 
