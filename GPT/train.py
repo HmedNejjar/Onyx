@@ -3,6 +3,8 @@ import torch
 from torch.utils.data import DataLoader
 from torch.optim import AdamW
 from torch.nn import CrossEntropyLoss
+from torch.nn.utils import clip_grad_norm_
+from torch.cuda.amp import autocast, GradScaler
 from Dataloader import GPTDataset
 from pathlib import Path
 from tqdm import tqdm
@@ -20,6 +22,7 @@ NUM_HEADS = 16
 NUM_LAYERS = 12
 DROPOUT = 0.1
 BATCH_SIZE = 2
+ACCUMULATION_STEPS = 8
 EPOCHS = 10
 LR = 1e-4
 
@@ -35,6 +38,8 @@ if MODEL_SAVE_PATH.exists():
 
 optimizer = AdamW(model.parameters(), LR, weight_decay=1e-5)
 loss_fn = CrossEntropyLoss()
+
+scaler = GradScaler()
 
 train_dataset = GPTDataset(TRAIN_FILE_PATH, CONTEXT_LEN, STRIDE)
 val_dataset   = GPTDataset(VAL_FILE_PATH,   CONTEXT_LEN, STRIDE)
@@ -102,30 +107,49 @@ def train_one_epoch(epoch: int, best_accuracy: float) -> float:
     epoch_loss     = 0.0
     epoch_accuracy = 0.0
     num_batches    = 0
+    accum_loss     = 0.0
 
     pbar = tqdm(train_loader, desc=f"Epoch {epoch+1}/{EPOCHS}")
-    for x, y in pbar:
+    for accum_idx, (x, y) in enumerate(pbar):
         # Move batch data to the selected device.
         x, y = x.to(DEVICE, non_blocking=True), y.to(DEVICE, non_blocking=True)
         
-        # Forward pass: compute logits from model input.
-        logits = model(x)
-        # Compute cross-entropy loss over the flattened batch/sequence output.
-        loss   = loss_fn(logits.view(-1, VOCAB_SIZE), y.view(-1))
+        with autocast():
+            # Forward pass: compute logits from model input.
+            logits = model(x)
+            # Compute cross-entropy loss over the flattened batch/sequence output.
+            loss   = loss_fn(logits.view(-1, VOCAB_SIZE), y.view(-1))
+            # Scale loss to prevent gradient underflow in FP16
+            scaled_loss = loss / ACCUMULATION_STEPS
+        
+        # Backward pass with scaled loss (gradients accumulate)
+        scaler.scale(scaled_loss).backward()
 
-        # Zero gradients, backpropagate, and update parameters.
-        optimizer.zero_grad()
-        loss.backward()
-        optimizer.step()
+        accum_loss += loss.item()
+        epoch_loss += loss.item()
 
-        # Compute batch accuracy and accumulate metrics.
-        acc             = accuracy(logits, y)
-        epoch_loss     += loss.item()
-        epoch_accuracy += acc
-        num_batches    += 1
-
-        # Update progress bar with the current batch metrics.
-        pbar.set_postfix(loss=f"{loss.item():.4f}", acc=f"{acc:.2f}%")
+        # Perform optimizer step every ACCUMULATION_STEPS batches
+        if (accum_idx + 1) % ACCUMULATION_STEPS == 0:
+            # Unscale before gradient clipping
+            scaler.unscale_(optimizer)
+            torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
+            
+            # Step the scaler (handles unscaling and checks for inf/nan)
+            scaler.step(optimizer)
+            scaler.update()
+            
+            # Zero gradients for next accumulation cycle
+            optimizer.zero_grad()
+            
+            # Compute batch accuracy and update metrics
+            acc = accuracy(logits, y)
+            epoch_accuracy += acc
+            num_batches += 1
+            
+            # Update progress bar with accumulated metrics
+            avg_accum_loss = accum_loss / ACCUMULATION_STEPS
+            pbar.set_postfix(loss=f"{avg_accum_loss:.4f}", acc=f"{acc:.2f}%", eff_batch=f"{BATCH_SIZE * ACCUMULATION_STEPS}")
+            accum_loss = 0.0
 
     avg_train_loss = epoch_loss     / num_batches
     avg_train_acc  = epoch_accuracy / num_batches

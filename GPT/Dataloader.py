@@ -34,7 +34,7 @@ class GPTDataset(Dataset):
                          with less overlap. Defaults to 512.
         """
         super().__init__()
-        self.tokens = np.load(tokens_file)
+        self.tokens = np.load(tokens_file, mmap_mode='r')
         self.seq_length = seq_length
         self.stride = stride
         
