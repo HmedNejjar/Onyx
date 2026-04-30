@@ -92,7 +92,7 @@ def validate():
 
     return total_loss / num_batches, total_accuracy / num_batches
 
-def train_one_epoch(epoch: int, best_accuracy: float = 43.39) -> float:
+def train_one_epoch(epoch: int, best_accuracy: float = 0.0) -> float:
     """
     Train for a single epoch and validate.
     
