@@ -14,16 +14,16 @@ TRAIN_FILE_PATH = PARENT / Path(r'Data/wikitext_train.npy')
 VAL_FILE_PATH = PARENT / Path(r'Data/wikitext_val.npy')
 MODEL_SAVE_PATH = PARENT / Path(r'best_model.pth')
 
-VOCAB_SIZE = 30_000
-STRIDE = 256
-CONTEXT_LEN = 512
-EMB_SIZE = 512
-NUM_HEADS = 16
+VOCAB_SIZE = 50_257
+CONTEXT_LEN = 1024
+STRIDE = CONTEXT_LEN // 4
+EMB_SIZE = 768
+NUM_HEADS = 12
 NUM_LAYERS = 12
 DROPOUT = 0.1
 BATCH_SIZE = 2
 ACCUMULATION_STEPS = 8
-EPOCHS = 10
+EPOCHS = 2
 LR = 1e-4
 
 DEVICE = 'cuda' if torch.cuda.is_available() else 'cpu'
@@ -92,7 +92,7 @@ def validate():
 
     return total_loss / num_batches, total_accuracy / num_batches
 
-def train_one_epoch(epoch: int, best_accuracy: float) -> float:
+def train_one_epoch(epoch: int, best_accuracy: float = 43.39) -> float:
     """
     Train for a single epoch and validate.
     

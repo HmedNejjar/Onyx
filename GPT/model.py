@@ -1,11 +1,8 @@
-import sys
-sys.path.insert(3, "G:\\Projects\\Python\\Onyx")
-
 import torch
 import torch.nn.functional as F
 from torch import Tensor, nn
+from transformers import GPT2LMHeadModel, GPT2Tokenizer
 from TransformerBlock import TransformerBlock
-from Tokenizer.Encoder import BPE
 from pathlib import Path
 
 
@@ -18,7 +15,7 @@ class Onyx(nn.Module):
     embeddings, positional embeddings, and causal masking to ensure that predictions
     at each position only depend on previous positions.
     """
-    def __init__(self, vocab_size:int = 30_000, context_length: int = 1024, emb_size: int = 1024, num_heads: int = 16, num_layers: int = 12, dropout: float = 0.1, tokenizer: str | Path = Path(r'G:\Projects\Python\Onyx\Tokenizer\BPE_30k.json')) -> None:
+    def __init__(self, vocab_size:int = 50_257, context_length: int = 1024, emb_size: int = 768, num_heads: int = 12, num_layers: int = 12, dropout: float = 0.1, tokenizer: str | Path = Path(r'G:\Projects\Python\Onyx\Tokenizer\BPE_50k.json')) -> None:
         """
         Initialize the Onyx language model.
         
@@ -39,8 +36,8 @@ class Onyx(nn.Module):
         self.num_heads = num_heads
         self.num_layers = num_layers
         
-        self.encoder = BPE(vocab_size=self.vocab_size)
-        self.encoder.load(tokenizer)
+        # Tokenizer is loaded at model init so generation and training use a consistent encoding scheme
+        self.encoder = GPT2Tokenizer.from_pretrained("gpt2")
         
         # Token embedding layer: maps token IDs to embedding vectors
         self.embedding = nn.Embedding(vocab_size, emb_size)
@@ -51,8 +48,11 @@ class Onyx(nn.Module):
         # Stack of transformer blocks for processing the embedded sequence
         self.transformer_layers = nn.ModuleList([TransformerBlock(emb_size, num_heads, 4*emb_size, dropout) for layer in range(num_layers)])
         
+        self.ln_f = nn.LayerNorm(emb_size)
+        
         # Output linear layer: projects embedding dimension back to vocabulary size for token prediction
         self.linear = nn.Linear(emb_size, vocab_size)
+
     
     def forward(self, X: Tensor) -> Tensor:
         """
@@ -74,6 +74,7 @@ class Onyx(nn.Module):
         X = self.embedding(X) + self.pos_embedding(positions)
         
         # Create causal mask: prevent attention to future tokens (for autoregressive generation)
+        # Explicit causal mask ensures stable token-level generation across all Transformer blocks
         # Upper triangle of -inf ensures masked positions have 0 attention weight after softmax
         causal_mask = torch.triu(torch.ones(seq_length, seq_length, device=X.device) * float('-inf'), diagonal=1)
         
@@ -81,10 +82,11 @@ class Onyx(nn.Module):
         for layer in self.transformer_layers:
             X = layer(X, causal_mask)
         
+        X = self.ln_f(X)
         # Project final embeddings to vocabulary logits for token prediction
         return self.linear(X)
     
-    def generate(self, prompt: str, max_tokens: int = 100, top_p: float = 0.9, temp: float = 0.1) -> str:
+    def generate(self, prompt: str, max_tokens: int = 100, top_p: float = 0.9, temp: float = 0.2) -> str:
         """
         Generate text continuation from a given prompt using autoregressive sampling.
         
@@ -107,8 +109,8 @@ class Onyx(nn.Module):
         encoded_prompt = self.encoder.encode(prompt)
         if len(encoded_prompt) == 0:
             raise ValueError("Prompt must contain at least one token. Please provide non-empty text input.")
-        tokenized = torch.tensor(encoded_prompt, dtype=torch.long).unsqueeze(0)
-        
+        device = next(self.parameters()).device
+        tokenized = torch.tensor(encoded_prompt, dtype=torch.long).unsqueeze(0).to(device)
         # Generate tokens one by one up to max_tokens
         for _ in range(max_tokens):
             # Take the last context_length tokens to maintain context window
@@ -118,6 +120,7 @@ class Onyx(nn.Module):
             logits = self(context)
             
             # Sample the next token using top-p sampling with temperature
+            # Modification: top-p sampling encourages coherent and diverse text continuations
             next_token = self._sample_top_p(logits[:, -1, :], top_p, temp)
             
             # Append the new token to the sequence
@@ -167,6 +170,3 @@ class Onyx(nn.Module):
         next_token = torch.multinomial(probs, num_samples=1)
         
         return next_token
-            
-                
-                

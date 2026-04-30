@@ -39,16 +39,19 @@ class TransformerBlock(nn.Module):
         super().__init__()
         
         # Self-attention mechanism that allows each token to attend to all other tokens
+        # Using batch_first=True so input shapes remain [batch_size, seq_length, emb_size]
         self.attn = nn.MultiheadAttention(embed_dim=emb_size, num_heads=num_heads, dropout=dropout, batch_first=True)
         
         # Position-wise feed-forward network applied to each token independently
-        self.ff = nn.Sequential(nn.Linear(emb_size, ff_dim), nn.ReLU(), nn.Linear(ff_dim, emb_size), nn.Dropout(dropout))
+        # Added GELU activation and dropout after the second linear projection
+        self.ff = nn.Sequential(nn.Linear(emb_size, ff_dim), nn.GELU(approximate="tanh"), nn.Linear(ff_dim, emb_size), nn.Dropout(dropout))
         
         # LayerNorm normalizes across the feature dimension (emb_size) for each token
         self.norm1 = nn.LayerNorm(emb_size)
         self.norm2 = nn.LayerNorm(emb_size)
         
         # Applied to the output of each sub-layer before adding to the residual path, in forward()
+        # Dropout is applied to residual branch outputs for regularization
         self.dropout = nn.Dropout(dropout)
         
     def forward(self, X: Tensor, mask: Tensor) -> Tensor:
@@ -68,12 +71,11 @@ class TransformerBlock(nn.Module):
                    Contains the transformed token representations after attention
                    and feed-forward processing.
         """
-        # Self-Attention with normalization
-        attn_output, _ = self.attn(X, X, X, attn_mask=mask)
-        X = self.norm1(X + self.dropout(attn_output))
-        
-        # Feed-Forward Network with normalization
-        ff_output = self.ff(X)
-        X = self.norm2(X + self.dropout(ff_output))
+        # Self-Attention with pre-normalization
+        # Modification: using pre-layernorm improves training stability in decoder blocks
+        attn_output, _ = self.attn(self.norm1(X), self.norm1(X), self.norm1(X), attn_mask=mask)
+        X = X + self.dropout(attn_output)
+        ff_output = self.ff(self.norm2(X))
+        X = X + self.dropout(ff_output)
         
         return X
