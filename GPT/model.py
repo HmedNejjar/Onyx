@@ -86,21 +86,23 @@ class Onyx(nn.Module):
         # Project final embeddings to vocabulary logits for token prediction
         return self.linear(X)
     
-    def generate(self, prompt: str, max_tokens: int = 100, top_p: float = 0.9, temp: float = 0.2) -> str:
+    def generate(self, prompt: str, max_tokens: int = 100, top_p: float = 0.9, top_k: int = 50, temp: float = 0.4, repetition_penalty: float = 1.2) -> str:
         """
-        Generate text continuation from a given prompt using autoregressive sampling.
+        Generate text continuation from a given prompt using combined top-p/top-k sampling.
         
-        >>> Get input prompt, then iteratively generates new tokens
-        by sampling from the model's probability distribution. It uses top-p (nucleus)
-        sampling with temperature scaling to control the randomness of generation.
+        Uses both nucleus (top-p) and top-k sampling together with a repetition penalty
+        to encourage diverse, coherent text generation while avoiding repetitive loops.
         
         Args:
             prompt (str): The input text prompt to continue from.
             max_tokens (int): Maximum number of tokens to generate. Defaults to 100.
             top_p (float): Cumulative probability threshold for nucleus sampling (0.0 to 1.0).
-                          Higher values allow more diverse outputs. Defaults to 0.9.
-            temp (float): Temperature for controlling randomness. Lower values make output
-                         more deterministic, higher values more random. Defaults to 0.1.
+                          Defaults to 0.9.
+            top_k (int): Keep only top k highest probability tokens. Defaults to 50.
+            temp (float): Temperature for controlling randomness. Lower = more deterministic,
+                         higher = more random. Defaults to 0.8.
+            repetition_penalty (float): Penalty applied to tokens already in the sequence.
+                                       >1.0 discourages repetition. Defaults to 1.2.
         
         Returns:
             str: The generated text, including the original prompt plus the continuation.
@@ -111,6 +113,7 @@ class Onyx(nn.Module):
             raise ValueError("Prompt must contain at least one token. Please provide non-empty text input.")
         device = next(self.parameters()).device
         tokenized = torch.tensor(encoded_prompt, dtype=torch.long).unsqueeze(0).to(device)
+        
         # Generate tokens one by one up to max_tokens
         for _ in range(max_tokens):
             # Take the last context_length tokens to maintain context window
@@ -119,51 +122,74 @@ class Onyx(nn.Module):
             # Get model predictions for the current context
             logits = self(context)
             
-            # Sample the next token using top-p sampling with temperature
-            # Modification: top-p sampling encourages coherent and diverse text continuations
-            next_token = self._sample_top_p(logits[:, -1, :], top_p, temp)
+            # Sample the next token using combined top-p/top-k sampling with repetition penalty
+            next_token = self._sample_top_p_top_k(logits[:, -1, :], tokenized, top_p, top_k, temp, repetition_penalty)
             
             # Append the new token to the sequence
             tokenized = torch.cat([tokenized, next_token], dim=1)
         
         # Decode the complete token sequence back to text
         return self.encoder.decode(tokenized[0].tolist())
-            
-    def _sample_top_p(self, logits:Tensor, top_p:float = 0.9, temperature:float = 0.8):
+    
+    def _sample_top_p_top_k(self, logits: Tensor, token_history: Tensor, top_p: float = 0.9, top_k: int = 50, temperature: float = 0.8, repetition_penalty: float = 1.2) -> Tensor:
         """
-        Sample from a distribution using top-p (nucleus) sampling with temperature scaling.
+        Sample from a distribution using combined top-p/top-k sampling with repetition penalty.
+        
+        This method applies:
+        1. Repetition penalty to discourage repeated tokens
+        2. Top-k filtering (keep only k highest probability tokens)
+        3. Top-p filtering (nucleus sampling)
+        4. Temperature scaling for randomness control
         
         Args:
             logits (Tensor): Shape [batch_size, vocab_size]. Raw model outputs.
+            token_history (Tensor): Shape [batch_size, seq_len]. Previously generated tokens.
             top_p (float): Cumulative probability threshold (0.0 to 1.0). Default 0.9.
+            top_k (int): Keep only top k highest probability tokens. Default 50.
             temperature (float): Temperature for controlling randomness. >1 = more random, <1 = more greedy.
+            repetition_penalty (float): Penalty for repeated tokens (>1.0). Default 1.2.
         
         Returns:
             Tensor: Shape [batch_size, 1]. Sampled token IDs.
         """
+        batch_size = logits.shape[0]
+        
+        # Apply repetition penalty: divide logits of tokens that appear in history
+        if repetition_penalty != 1.0:
+            # Get unique tokens in the history
+            for batch_idx in range(batch_size):
+                unique_tokens = torch.unique(token_history[batch_idx])
+                logits[batch_idx, unique_tokens] /= repetition_penalty
+        
         # Apply temperature scaling
         scaled_logits = logits / temperature
         
         # Convert to probabilities
         probs = F.softmax(scaled_logits, dim=-1)
         
-        # Sort probabilities in descending order
-        sorted_probs, sorted_indices = torch.sort(probs, descending=True, dim=-1)
+        # Apply top-k filtering
+        if top_k > 0:
+            top_k_probs, top_k_indices = torch.topk(probs, top_k, dim=-1)
+            # Create a mask and zero out non-top-k tokens
+            top_k_mask = torch.full_like(probs, float('-inf'))
+            top_k_mask.scatter_(-1, top_k_indices, 0.0)
+            probs = probs.masked_fill(top_k_mask == float('-inf'), 0.0)
         
-        # Compute cumulative sum
-        cum_sum = torch.cumsum(sorted_probs, dim=-1)
+        # Apply top-p (nucleus) filtering
+        if top_p < 1.0:
+            sorted_probs, sorted_indices = torch.sort(probs, descending=True, dim=-1)
+            cum_sum = torch.cumsum(sorted_probs, dim=-1)
+            
+            # Find tokens to remove
+            sorted_indices_to_remove = cum_sum > top_p
+            # Always keep at least the top token
+            sorted_indices_to_remove[:, 0] = False
+            
+            # Map back to original indices and zero out
+            indices_to_remove = sorted_indices[sorted_indices_to_remove]
+            probs[torch.arange(probs.shape[0]).unsqueeze(1), indices_to_remove] = 0.0
         
-        # Find the cutoff: tokens where cumsum <= top_p
-        sorted_indices_to_remove = cum_sum > top_p
-        
-        # Always keep at least the top token (avoid removing everything)
-        sorted_indices_to_remove[:, 0] = False
-        
-        # Map back to original indices and zero out low-probability tokens
-        indices_to_remove = sorted_indices[sorted_indices_to_remove]
-        probs[torch.arange(probs.shape[0]).unsqueeze(1), indices_to_remove] = 0.0
-        
-        # Renormalize
+        # Renormalize probabilities
         probs = probs / probs.sum(dim=-1, keepdim=True)
         
         # Sample
