@@ -1,7 +1,7 @@
 import torch
 import torch.nn.functional as F
 from torch import Tensor, nn
-from transformers import GPT2LMHeadModel, GPT2Tokenizer
+from transformers import GPT2Tokenizer
 from TransformerBlock import TransformerBlock
 from pathlib import Path
 
