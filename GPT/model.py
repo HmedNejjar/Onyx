@@ -15,7 +15,7 @@ class Onyx(nn.Module):
     embeddings, positional embeddings, and causal masking to ensure that predictions
     at each position only depend on previous positions.
     """
-    def __init__(self, vocab_size:int = 50_257, context_length: int = 1024, emb_size: int = 768, num_heads: int = 12, num_layers: int = 12, dropout: float = 0.1, tokenizer: str | Path = Path(r'G:\Projects\Python\Onyx\Tokenizer\BPE_50k.json')) -> None:
+    def __init__(self, vocab_size:int = 50_257, context_length: int = 1024, emb_size: int = 768, num_heads: int = 12, num_layers: int = 12, dropout: float = 0.1) -> None:
         """
         Initialize the Onyx language model.
         
