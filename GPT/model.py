@@ -76,7 +76,7 @@ class Onyx(nn.Module):
         # Create causal mask: prevent attention to future tokens (for autoregressive generation)
         # Explicit causal mask ensures stable token-level generation across all Transformer blocks
         # Upper triangle of -inf ensures masked positions have 0 attention weight after softmax
-        causal_mask = torch.triu(torch.ones(seq_length, seq_length, device=X.device) * float('-inf'), diagonal=1)
+        causal_mask = torch.triu(torch.full((seq_length, seq_length), True, device=X.device), diagonal=1).bool()
         
         # Pass through each transformer block with the causal mask
         for layer in self.transformer_layers:
@@ -86,7 +86,7 @@ class Onyx(nn.Module):
         # Project final embeddings to vocabulary logits for token prediction
         return self.linear(X)
     
-    def generate(self, prompt: str, max_tokens: int = 100, top_p: float = 0.9, top_k: int = 50, temp: float = 0.4, repetition_penalty: float = 1.2) -> str:
+    def generate(self, prompt: str, max_tokens: int = 100, top_p: float = 0.95, top_k: int = 50, temp: float = 0.7, repetition_penalty: float = 1.2) -> str:
         """
         Generate text continuation from a given prompt using combined top-p/top-k sampling.
         
@@ -97,16 +97,17 @@ class Onyx(nn.Module):
             prompt (str): The input text prompt to continue from.
             max_tokens (int): Maximum number of tokens to generate. Defaults to 100.
             top_p (float): Cumulative probability threshold for nucleus sampling (0.0 to 1.0).
-                          Defaults to 0.9.
+                          Defaults to 0.95.
             top_k (int): Keep only top k highest probability tokens. Defaults to 50.
             temp (float): Temperature for controlling randomness. Lower = more deterministic,
-                         higher = more random. Defaults to 0.8.
+                         higher = more random. Defaults to 0.7.
             repetition_penalty (float): Penalty applied to tokens already in the sequence.
                                        >1.0 discourages repetition. Defaults to 1.2.
         
         Returns:
             str: The generated text, including the original prompt plus the continuation.
         """
+        self.eval()
         # Tokenize the input prompt and convert to tensor with batch dimension
         encoded_prompt = self.encoder.encode(prompt)
         if len(encoded_prompt) == 0:
@@ -131,7 +132,7 @@ class Onyx(nn.Module):
         # Decode the complete token sequence back to text
         return self.encoder.decode(tokenized[0].tolist())
     
-    def _sample_top_p_top_k(self, logits: Tensor, token_history: Tensor, top_p: float = 0.9, top_k: int = 50, temperature: float = 0.8, repetition_penalty: float = 1.2) -> Tensor:
+    def _sample_top_p_top_k(self, logits: Tensor, token_history: Tensor, top_p: float = 0.9, top_k: int = 50, temperature: float = 1, repetition_penalty: float = 1.2) -> Tensor:
         """
         Sample from a distribution using combined top-p/top-k sampling with repetition penalty.
         
@@ -156,11 +157,12 @@ class Onyx(nn.Module):
         
         # Apply repetition penalty: divide logits of tokens that appear in history
         if repetition_penalty != 1.0:
-            # Get unique tokens in the history
-            for batch_idx in range(batch_size):
+            for batch_idx in range(logits.shape[0]):
                 unique_tokens = torch.unique(token_history[batch_idx])
-                logits[batch_idx, unique_tokens] /= repetition_penalty
-        
+                
+                score = logits[batch_idx, unique_tokens]
+                logits[batch_idx, unique_tokens] = torch.where(score < 0, score * repetition_penalty, score / repetition_penalty)
+
         # Apply temperature scaling
         scaled_logits = logits / temperature
         
@@ -169,30 +171,23 @@ class Onyx(nn.Module):
         
         # Apply top-k filtering
         if top_k > 0:
-            top_k_probs, top_k_indices = torch.topk(probs, top_k, dim=-1)
-            # Create a mask and zero out non-top-k tokens
-            top_k_mask = torch.full_like(probs, float('-inf'))
-            top_k_mask.scatter_(-1, top_k_indices, 0.0)
-            probs = probs.masked_fill(top_k_mask == float('-inf'), 0.0)
+            top_k = min(top_k, logits.size(-1))
+            kth_values = torch.topk(logits, top_k, dim=-1).values[:, -1, None]  # k-th largest
+            logits = logits.masked_fill(logits < kth_values, float('-inf'))
         
         # Apply top-p (nucleus) filtering
         if top_p < 1.0:
+            probs = torch.softmax(logits, dim=-1)
             sorted_probs, sorted_indices = torch.sort(probs, descending=True, dim=-1)
-            cum_sum = torch.cumsum(sorted_probs, dim=-1)
+            cumulative_probs = torch.cumsum(sorted_probs, dim=-1)
             
-            # Find tokens to remove
-            sorted_indices_to_remove = cum_sum > top_p
-            # Always keep at least the top token
-            sorted_indices_to_remove[:, 0] = False
+            # Remove tokens where cumulative prob exceeds top_p (shift right to keep the token that crosses)
+            sorted_to_remove = cumulative_probs - sorted_probs > top_p
+            # Scatter back to original ordering
+            to_remove = sorted_to_remove.scatter(1, sorted_indices, sorted_to_remove)
+            logits = logits.masked_fill(to_remove, float('-inf'))
             
-            # Map back to original indices and zero out
-            indices_to_remove = sorted_indices[sorted_indices_to_remove]
-            probs[torch.arange(probs.shape[0]).unsqueeze(1), indices_to_remove] = 0.0
-        
-        # Renormalize probabilities
-        probs = probs / probs.sum(dim=-1, keepdim=True)
-        
         # Sample
+        probs = torch.softmax(logits, dim=-1)
         next_token = torch.multinomial(probs, num_samples=1)
-        
         return next_token
