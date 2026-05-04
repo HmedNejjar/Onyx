@@ -128,6 +128,12 @@ class Onyx(nn.Module):
             
             # Append the new token to the sequence
             tokenized = torch.cat([tokenized, next_token], dim=1)
+            
+            # STOP if we hit newline or EOS
+            if next_token.item() == self.encoder.eos_token_id:
+                break
+            if self.encoder.decode([next_token.item()]) == '\n':
+                break
         
         # Decode the complete token sequence back to text
         return self.encoder.decode(tokenized[0].tolist())
